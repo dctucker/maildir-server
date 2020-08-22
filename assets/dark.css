@@ -1,0 +1,12 @@
+body {
+	background-color: #000;
+	color: #ccc;
+	-ms-overflow-style: scrollbar;
+}
+#mail thead tr {
+	background-color: #222;
+	color: #ccc;
+}
+#mail table tr * {
+	border-color: #222;
+}

@@ -1,10 +1,6 @@
 //#![windows_subsystem = "windows"]
 
-// extern crate tinyfiledialogs as tfd;
-//use tfd::MessageBoxIcon;
-
 extern crate web_view;
-//extern crate serde_derive;
 extern crate serde_json;
 
 use web_view::*;
@@ -13,24 +9,94 @@ struct UserData {
 	name: String,
 }
 
-extern crate maildir;
-use maildir::Maildir;
-fn load_mail() -> Vec<String> {
-	let maildir = Maildir::from("E:/maildir/hotmail/INBOX");
-	let mut entries = maildir.list_cur();
-	let mut message = entries.next().unwrap().unwrap();
-	let parsed = message.parsed().unwrap();
-	let mut ret = vec![];
-	for header in parsed.headers.iter() {
-		ret.push(format!("{}: {}", header.get_key(), header.get_value()));
-	}
-	ret
+use std::collections::HashMap;
+use serde::{Serialize};
+
+#[derive(Serialize)]
+struct Message {
+	headers: HashMap<String,String>,
+	parts: Vec<Message>,
+	ctype: String,
+	body: String,
 }
 
+extern crate maildir;
+use maildir::Maildir;
+use mailparse::ParsedMail;
+
+impl Message {
+	fn from_parsed_mail(parsed: &ParsedMail<'_>) -> Self {
+		let mut body: String = parsed.get_body().unwrap();
+		if parsed.ctype.mimetype.starts_with("text/html") {
+			body = sanitize(body);
+		}
+		Message {
+			headers: parsed.headers.iter().map(|h| { (h.get_key(), h.get_value()) }).collect(),
+			body: body,
+			ctype: parsed.ctype.mimetype.clone(),
+			parts: parsed.subparts.iter().map(|s| { Message::from_parsed_mail(s) }).collect(),
+		}
+	}
+}
+
+use html_sanitizer::TagParser;
+fn sanitize(input: String) -> String {
+	let mut tag_parser = TagParser::new(&mut input.as_bytes());
+	tag_parser.walk(|tag| {
+		if tag.name == "html" || tag.name == "body" {
+			tag.ignore_self(); // ignore <html> and <body> tags, but still parse their children
+		} else if tag.name == "head" || tag.name == "script" || tag.name == "style" {
+			tag.ignore_self_and_contents(); // Ignore <head>, <script> and <style> tags, and all their children
+		} else if tag.name == "a" {
+			tag.allow_attribute(String::from("href")); // Allow specific attributes
+		} else if tag.name == "img" {
+			tag.rewrite_as(String::from("<b>Images not allowed</b>")); // Completely rewrite tags and their children
+		} else {
+			tag.allow_attribute(String::from("style")); // Allow specific attributes
+		}
+	})
+}
+
+use std::fs;
+use std::io::prelude::*;
+fn load_mail() -> String {
+	let maildir = Maildir::from("E:/maildir/hotmail/INBOX");
+	let mut entries = maildir.list_cur();
+	let mut entry = entries.next().unwrap().unwrap();
+	//let parsed = entry.parsed().unwrap();
+
+	let mut f = fs::File::open(entry.path()).unwrap();
+	let mut d = Vec::<u8>::new();
+	f.read_to_end(&mut d).unwrap();
+
+	let parsed = mailparse::parse_mail(&d).unwrap();
+	let msg = Message::from_parsed_mail(&parsed);
+	let json = serde_json::to_string(&msg).unwrap();
+	json
+}
+
+const BODY: &str = include_str!("../assets/body.html");
+const MAIN_CSS: &str = include_str!("../assets/main.css");
+const DARK_CSS: &str = include_str!("../assets/dark.css");
+const JS: &str = include_str!("../assets/maildir.js");
 fn main() {
 	let webview = web_view::builder()
 		.title("Mail time")
-		.content(Content::Html(HTML))
+		.content(Content::Html(format!(r#"<!doctype html>
+			<html>
+				<head>
+					<style>
+						{styles}
+					</style>
+				</head>
+				<body>
+					{body}
+					<script type="text/javascript">
+						{scripts}
+					</script>
+				</body>
+			</html>
+		"#, body=BODY, styles=format!("{} {}", MAIN_CSS, DARK_CSS), scripts=JS)))
 		.size(800, 600)
 		.resizable(true)
 		.debug(true)
@@ -38,38 +104,11 @@ fn main() {
 		.invoke_handler(|webview, arg| {
 			match arg {
 				"load_mail" => {
-					let headers = load_mail().join("\n");
-					webview.eval(&format!("setHeaders({})", serde_json::to_string(&headers).unwrap())).unwrap();
+					let headers = load_mail();
+					let command = format!("setPreview({})", &headers);
+					println!("{}", command);
+					webview.eval(&command).unwrap();
 				},
-				/*
-				"open" => match tfd::open_file_dialog("Please choose a file...", "", None) {
-					Some(path) => tfd::message_box_ok("File chosen", &path, MessageBoxIcon::Info),
-					None => tfd::message_box_ok(
-						"Warning",
-						"You didn't choose a file.",
-						MessageBoxIcon::Warning,
-					),
-				},
-				"save" => match tfd::save_file_dialog("Save file...", "") {
-					Some(path) => tfd::message_box_ok("File chosen", &path, MessageBoxIcon::Info),
-					None => tfd::message_box_ok(
-						"Warning",
-						"You didn't choose a file.",
-						MessageBoxIcon::Warning,
-					),
-				},
-				"info" => {
-					tfd::message_box_ok("Info", "This is a info dialog", MessageBoxIcon::Info)
-				}
-				"warning" => tfd::message_box_ok(
-					"Warning",
-					"This is a warning dialog",
-					MessageBoxIcon::Warning,
-				),
-				"error" => {
-					tfd::message_box_ok("Error", "This is a error dialog", MessageBoxIcon::Error)
-				}
-				*/
 				"exit" => webview.exit(),
 				_ => unimplemented!(),
 			};
@@ -79,109 +118,3 @@ fn main() {
 
 	webview.run().unwrap();
 }
-
-const HTML: &str = r#"
-<!doctype html>
-<html>
-<head>
-	<style>
-		* {
-			font-family: Arial;
-			font-size: 12pt;
-		}
-		body {
-			margin: 0px;
-			padding: 0px;
-		}
-		#mail table {
-			width: 100%;
-			border-spacing: 0px;
-			border-collapse: collapse;
-		}
-		#mail thead tr {
-			background-color: #eee;
-		}
-		#mail thead tr th {
-			text-align: left;
-			color: #aaa;
-		}
-		#mail table tr * {
-			border: 1px solid #eee;
-		}
-		#toolbar { display: none; }
-		#headers {
-		font-family: consolas;
-		font-size: 10pt;
-		white-space: pre;
-		}
-	</style>
-</head>
-<body>
-	<div id="toolbar">
-		<button onclick="external.invoke('load_mail')">Open</button>
-		<button onclick="external.invoke('save')">Save</button>
-		<button onclick="external.invoke('info')">Info</button>
-		<button onclick="external.invoke('warning')">Warning</button>
-		<button onclick="external.invoke('error')">Error</button>
-		<button onclick="external.invoke('exit')">Exit</button>
-	</div>
-	<div id="mail">
-		<table>
-			<thead>
-				<tr>
-					<th>[]</th>
-					<th>From</th>
-					<th>Subject</th>
-					<th>Received</th>
-				</tr>
-			</thead>
-			<tbody>
-				<tr>
-					<td>&nbsp;</td>
-					<td>&nbsp;</td>
-					<td>&nbsp;</td>
-					<td>&nbsp;</td>
-				</tr>
-				<tr>
-					<td>&nbsp;</td>
-					<td>&nbsp;</td>
-					<td>&nbsp;</td>
-					<td>&nbsp;</td>
-				</tr>
-				<tr>
-					<td>&nbsp;</td>
-					<td>&nbsp;</td>
-					<td>&nbsp;</td>
-					<td>&nbsp;</td>
-				</tr>
-			</tbody>
-		</table>
-		<div id="preview">
-			<div id="headers">
-			</div>
-		&nbsp;
-		</div>
-	</div>
-	<script type="text/javascript">
-	function setHeaders(data) {
-		console.log("Hello");
-		document.getElementById("headers").innerHTML = data.replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/&/g,'&amp;');
-	}
-	var callback = function(){
-	  // Handler when the DOM is fully loaded
-		external.invoke('load_mail');
-	};
-
-	if (
-		document.readyState === "complete" ||
-		(document.readyState !== "loading" && !document.documentElement.doScroll)
-	) {
-	  callback();
-	} else {
-	  document.addEventListener("DOMContentLoaded", callback);
-	}
-
-	</script>
-</body>
-</html>
-"#;
