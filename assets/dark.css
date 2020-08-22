@@ -10,3 +10,19 @@ body {
 #mail table tr * {
 	border-color: #222;
 }
+#href {
+	background-color: #555;
+	color: #aaa;
+}
+.accordion > input[type="checkbox"]:checked ~ .content {
+  border-color: #222222;
+}
+.accordion label {
+  color: #999;
+  background: #222222;
+}
+.accordion label:hover,
+.accordion label:focus {
+  background: #333333;
+}
+

@@ -1,12 +1,47 @@
+//'use strict';
+rpc = {
+	invoke: function(cmd, args) {
+		if( args === undefined ){
+			args = {};
+		}
+		args.cmd = cmd;
+		external.invoke(JSON.stringify(args));
+	},
+};
+
 var callback = function(){
-	external.invoke('load_mail');
+	rpc.invoke('LoadMail');
 
 	document.addEventListener('mouseover', function(event) {
-		var hoveredEl = event.target; // The actual element which was hovered.
-		if (hoveredEl.tagName !== 'A') { return; } // Ignore non links
-		console.log(hoveredEl.href); // Do what we want here!
+		var hovered = event.target; // The actual element which was hovered.
+		if (hovered.tagName !== 'A') {
+			document.getElementById("href").innerHTML = "";
+			return;
+		}
+		//console.log(hovered.href); // Do what we want here!
+		document.getElementById("href").innerHTML = escapeHtml(hovered.href);
 	});
+
+	/*
+	document.addEventListener('click', function(event) {
+		if (event.target.tagName !== 'A') {
+			return;
+		}
+		rpc.invoke('Browse', { url: event.target.href });
+		return false;
+	});
+	*/
+
+	document.onclick = function(event) {
+		event = event || window.event;
+		var element = event.target || event.srcElement;
+		if( element.tagName == "A" ){
+			rpc.invoke('Browse', { url: element.href });
+			return false;
+		}
+	}
 };
+
 
 if (
 	document.readyState === "complete" ||

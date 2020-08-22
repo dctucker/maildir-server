@@ -2,6 +2,8 @@
 
 extern crate web_view;
 extern crate serde_json;
+#[macro_use]
+extern crate serde_derive;
 
 use web_view::*;
 
@@ -61,8 +63,8 @@ use std::fs;
 use std::io::prelude::*;
 fn load_mail() -> String {
 	let maildir = Maildir::from("E:/maildir/hotmail/INBOX");
-	let mut entries = maildir.list_cur();
-	let mut entry = entries.next().unwrap().unwrap();
+	let mut entries = maildir.list_new();
+	let entry = entries.last().unwrap().unwrap();
 	//let parsed = entry.parsed().unwrap();
 
 	let mut f = fs::File::open(entry.path()).unwrap();
@@ -73,6 +75,14 @@ fn load_mail() -> String {
 	let msg = Message::from_parsed_mail(&parsed);
 	let json = serde_json::to_string(&msg).unwrap();
 	json
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "cmd")]
+enum Cmd {
+	LoadMail {},
+	Browse { url: String },
+	Exit {},
 }
 
 const BODY: &str = include_str!("../assets/body.html");
@@ -90,10 +100,12 @@ fn main() {
 					</style>
 				</head>
 				<body>
-					{body}
-					<script type="text/javascript">
-						{scripts}
-					</script>
+					<div id='app'>
+						{body}
+						<script type="text/javascript">
+							{scripts}
+						</script>
+					</div>
 				</body>
 			</html>
 		"#, body=BODY, styles=format!("{} {}", MAIN_CSS, DARK_CSS), scripts=JS)))
@@ -102,16 +114,24 @@ fn main() {
 		.debug(true)
 		.user_data(UserData { name: "dctucker".to_string() })
 		.invoke_handler(|webview, arg| {
-			match arg {
-				"load_mail" => {
-					let headers = load_mail();
-					let command = format!("setPreview({})", &headers);
-					println!("{}", command);
-					webview.eval(&command).unwrap();
-				},
-				"exit" => webview.exit(),
-				_ => unimplemented!(),
-			};
+            use Cmd::*;
+            if let Ok(cmd) = serde_json::from_str(arg) {
+				match cmd {
+					LoadMail {} => {
+						let headers = load_mail();
+						let command = format!("setPreview({})", &headers);
+						println!("{}", command);
+						webview.eval(&command).unwrap();
+					},
+					Browse { url } => {
+						println!("{}", url);
+						webbrowser::open(&url).unwrap();
+					},
+					Exit {} => webview.exit(),
+				};
+			} else {
+				eprintln!("Invalid command: {}", arg);
+			}
 			Ok(())
 		})
 	.build().unwrap();
