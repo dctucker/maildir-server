@@ -1016,6 +1016,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
+ "walkdir",
  "web-view",
  "webbrowser",
  "winres",

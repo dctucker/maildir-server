@@ -154,6 +154,27 @@ fn get_mail(req: HttpRequest) -> HttpResponse {
 	*/
 }
 
+fn list_boxes() -> HttpResponse {
+	let full_path = "E:/Maildir";
+	let ret: Vec<String> = walkdir::WalkDir::new(full_path.clone())
+		.into_iter()
+		.filter_entry(|e| e.file_type().is_dir())
+		.map(|e| e.unwrap().into_path().display().to_string().replace("\\","/").replace(full_path,""))
+		.collect();
+	HttpResponse::Ok()
+		.json(ret)
+}
+
+fn mailbox(path: web::Path<String>) -> HttpResponse {
+	let full_path = format!("E:/Maildir/{}", path);
+	let ret: Vec<String> = walkdir::WalkDir::new(full_path.clone())
+		.into_iter()
+		.map(|e| e.unwrap().into_path().display().to_string().replace("\\","/").replace(&full_path, ""))
+		.collect();
+	HttpResponse::Ok()
+		.json(ret)
+}
+
 fn main() {
 	let (server_tx, server_rx) = mpsc::channel();
 	let (port_tx, port_rx) = mpsc::channel();
@@ -165,7 +186,9 @@ fn main() {
 		let server = HttpServer::new(|| {
 				App::new()
 					.route("/mail/message.json", web::get().to(get_mail))
-					//.route("/mail/message/headers.json", web::get().to(mail_headers))
+					//.route("/mail/message/{msg_id}/headers.json", web::get().to(mail_headers))
+					.route("/mail/boxes", web::get().to(list_boxes))
+					.route("/mail/box/{dir:.*}", web::get().to(mailbox))
 					.route("*", web::get().to(assets))
 			})
 			.bind("127.0.0.1:0")

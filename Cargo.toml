@@ -25,6 +25,7 @@ actix-rt = "0.2"
 futures = "0.1"
 mime_guess = "2.0.1"
 rust-embed = "5.1.0"
+walkdir = "2.3.1"
 
 [target.'cfg(windows)'.build-dependencies]
 winres = "0.1"
