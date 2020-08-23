@@ -25,8 +25,9 @@ html::-webkit-scrollbar-track{
 }
 
 * {
-	font-family: Arial;
+	font-family: "Overpass", "Open Sans", Helvetica, sans-serif;
 	font-size: 12pt;
+	font-weight: 300;
 }
 body {
 	margin: 0px;
@@ -116,9 +117,7 @@ div {
 	word-break: break-all;
 }
 
-/*
- CSS for the main interaction
-*/
+/* CSS for the main interaction */
 .accordion > input[type="checkbox"] {
   position: absolute;
   left: -100vw;
@@ -139,21 +138,13 @@ div {
   display: block;
 }
 
-/*
- Styling
-*/
-body {
-  font: 16px/1.5em "Overpass", "Open Sans", Helvetica, sans-serif;
-  color: #999;
-  font-weight: 300;
-}
-
+/* Styling */
 .accordion {
   margin-bottom: 1em;
 }
 
 .accordion > input[type="checkbox"]:checked ~ .content {
-  padding: 15px;
+  padding: 7px;
   border-top: 0;
   border-width: 1px;
   border-style: solid;
@@ -170,7 +161,6 @@ body {
   font-weight: normal;
   padding: 15px;
 }
-
 
 .accordion .handle label:before {
   font-family: 'fontawesome';

@@ -1,5 +1,11 @@
 //#![windows_subsystem = "windows"]
 
+extern crate actix_rt;
+extern crate actix_web;
+extern crate futures;
+extern crate mime_guess;
+extern crate rust_embed;
+
 extern crate web_view;
 extern crate serde_json;
 #[macro_use]
@@ -52,7 +58,10 @@ fn sanitize(input: String) -> String {
 		} else if tag.name == "a" {
 			tag.allow_attribute(String::from("href")); // Allow specific attributes
 		} else if tag.name == "img" {
-			tag.rewrite_as(String::from("<b>Images not allowed</b>")); // Completely rewrite tags and their children
+			tag.allow_attribute(String::from("src"));
+			tag.allow_attribute(String::from("width"));
+			tag.allow_attribute(String::from("height"));
+			//tag.rewrite_as(String::from("<b>Images not allowed</b>")); // Completely rewrite tags and their children
 		} else {
 			tag.allow_attribute(String::from("style")); // Allow specific attributes
 		}
@@ -61,9 +70,9 @@ fn sanitize(input: String) -> String {
 
 use std::fs;
 use std::io::prelude::*;
-fn load_mail() -> String {
+fn load_mail() -> Message {
 	let maildir = Maildir::from("E:/maildir/hotmail/INBOX");
-	let mut entries = maildir.list_new();
+	let entries = maildir.list_new();
 	let entry = entries.last().unwrap().unwrap();
 	//let parsed = entry.parsed().unwrap();
 
@@ -73,8 +82,7 @@ fn load_mail() -> String {
 
 	let parsed = mailparse::parse_mail(&d).unwrap();
 	let msg = Message::from_parsed_mail(&parsed);
-	let json = serde_json::to_string(&msg).unwrap();
-	json
+	msg
 }
 
 #[derive(Deserialize)]
@@ -85,31 +93,98 @@ enum Cmd {
 	Exit {},
 }
 
-const BODY: &str = include_str!("../assets/body.html");
-const MAIN_CSS: &str = include_str!("../assets/main.css");
-const DARK_CSS: &str = include_str!("../assets/dark.css");
-const JS: &str = include_str!("../assets/maildir.js");
+
+use std::{borrow::Cow, sync::mpsc, thread};
+use rust_embed::RustEmbed;
+use actix_web::{body::Body, web, App, HttpRequest, HttpResponse, HttpServer};
+use futures::future::Future;
+
+#[derive(RustEmbed)]
+#[folder = "assets"]
+struct Asset;
+
+fn assets(req: HttpRequest) -> HttpResponse {
+	let path = if req.path() == "/" {
+		"index.html"
+	} else {
+		&req.path()[1..] // trim leading '/'
+	};
+
+	// query the file from embedded asset with specified path
+	match Asset::get(path) {
+		Some(content) => {
+			let body: Body = match content {
+				Cow::Borrowed(bytes) => bytes.into(),
+				Cow::Owned(bytes) => bytes.into(),
+			};
+			HttpResponse::Ok()
+				.content_type(mime_guess::from_path(path).first_or_octet_stream().as_ref())
+				.body(body)
+		}
+		None => HttpResponse::NotFound().body("404 Not Found"),
+	}
+}
+
+fn get_mail(req: HttpRequest) -> HttpResponse {
+	let _path = if req.path() == "/" {
+		"index.html"
+	} else {
+		&req.path()[1..] // trim leading '/'
+	};
+
+	HttpResponse::Ok()
+		//.content_type("application/json; charset=utf8")
+		.json(load_mail())
+
+
+	/*
+	// query the file from embedded asset with specified path
+	match Asset::get(path) {
+		Some(content) => {
+			let body: Body = match content {
+				Cow::Borrowed(bytes) => bytes.into(),
+				Cow::Owned(bytes) => bytes.into(),
+			};
+			HttpResponse::Ok()
+				.content_type(mime_guess::from_path(path).first_or_octet_stream().as_ref())
+				.body(body)
+		}
+		None => HttpResponse::NotFound().body("404 Not Found"),
+	}
+	*/
+}
+
 fn main() {
+	let (server_tx, server_rx) = mpsc::channel();
+	let (port_tx, port_rx) = mpsc::channel();
+
+	// start actix web server in separate thread
+	thread::spawn(move || {
+		let sys = actix_rt::System::new("actix-example");
+
+		let server = HttpServer::new(|| {
+				App::new()
+					.route("/mail/message.json", web::get().to(get_mail))
+					//.route("/mail/message/headers.json", web::get().to(mail_headers))
+					.route("*", web::get().to(assets))
+			})
+			.bind("127.0.0.1:0")
+			.unwrap();
+
+		let port = server.addrs().first().unwrap().port();
+		let server = server.start();
+
+		let _ = port_tx.send(port);
+		let _ = server_tx.send(server);
+		let _ = sys.run();
+	});
+
+	let port = port_rx.recv().unwrap();
+	let server = server_rx.recv().unwrap();
 	let webview = web_view::builder()
 		.title("Mail time")
-		.content(Content::Html(format!(r#"<!doctype html>
-			<html>
-				<head>
-					<style>
-						{styles}
-					</style>
-				</head>
-				<body>
-					<div id='app'>
-						{body}
-						<script type="text/javascript">
-							{scripts}
-						</script>
-					</div>
-				</body>
-			</html>
-		"#, body=BODY, styles=format!("{} {}", MAIN_CSS, DARK_CSS), scripts=JS)))
-		.size(800, 600)
+		.content(Content::Url(format!("http://127.0.0.1:{}", port)))
+		.size(1024, 768)
 		.resizable(true)
 		.debug(true)
 		.user_data(UserData { name: "dctucker".to_string() })
@@ -118,13 +193,14 @@ fn main() {
             if let Ok(cmd) = serde_json::from_str(arg) {
 				match cmd {
 					LoadMail {} => {
+						/*
 						let headers = load_mail();
 						let command = format!("setPreview({})", &headers);
-						println!("{}", command);
+						//println!("{}", command);
 						webview.eval(&command).unwrap();
+						*/
 					},
 					Browse { url } => {
-						println!("{}", url);
 						webbrowser::open(&url).unwrap();
 					},
 					Exit {} => webview.exit(),
@@ -137,4 +213,6 @@ fn main() {
 	.build().unwrap();
 
 	webview.run().unwrap();
+
+    let _ = server.stop(true).wait();
 }

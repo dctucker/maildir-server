@@ -9,9 +9,7 @@ rpc = {
 	},
 };
 
-var callback = function(){
-	rpc.invoke('LoadMail');
-
+var content_loaded = function(){
 	document.addEventListener('mouseover', function(event) {
 		var hovered = event.target; // The actual element which was hovered.
 		if (hovered.tagName !== 'A') {
@@ -40,6 +38,12 @@ var callback = function(){
 			return false;
 		}
 	}
+
+	//rpc.invoke('LoadMail');
+	fetch('/mail/message.json')
+		.then(resp => resp.json())
+		.then(data => setPreview(data));
+
 };
 
 
@@ -47,9 +51,9 @@ if (
 	document.readyState === "complete" ||
 	(document.readyState !== "loading" && !document.documentElement.doScroll)
 ) {
-  callback();
+  content_loaded();
 } else {
-  document.addEventListener("DOMContentLoaded", callback);
+  document.addEventListener("DOMContentLoaded", content_loaded);
 }
 
 function escapeHtml(s) {
@@ -90,6 +94,7 @@ function formatHeaders(headers) {
 }
 
 function setPreview(data) {
+	document.getElementById("headers_label").innerHTML = data.headers["From"] + " &mdash; " + data.headers["Subject"];
 	document.getElementById("headers").innerHTML = formatHeaders(data.headers);
 	document.getElementById("body").innerHTML = formatBody(data);
 }
