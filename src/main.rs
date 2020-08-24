@@ -1,10 +1,15 @@
 //#![windows_subsystem = "windows"]
 
+const MAILDIR_PATH: &str = "E:/Maildir";
+
 extern crate actix_rt;
 extern crate actix_web;
 extern crate futures;
 extern crate mime_guess;
 extern crate rust_embed;
+
+extern crate chrono;
+use chrono::prelude::*;
 
 extern crate web_view;
 extern crate serde_json;
@@ -13,23 +18,20 @@ extern crate serde_derive;
 
 use web_view::*;
 
-struct UserData {
-	name: String,
-}
-
 use std::collections::HashMap;
 use serde::{Serialize};
 
+type MessageHeaders = HashMap<String,String>;
+
 #[derive(Serialize)]
 struct Message {
-	headers: HashMap<String,String>,
+	headers: MessageHeaders,
 	parts: Vec<Message>,
 	ctype: String,
 	body: String,
 }
 
 extern crate maildir;
-use maildir::Maildir;
 use mailparse::ParsedMail;
 
 impl Message {
@@ -46,6 +48,81 @@ impl Message {
 		}
 	}
 }
+
+#[derive(Debug,Serialize)]
+struct UserData {
+	mailboxes: Vec<String>,
+	current_mailbox: String,
+	messages: HashMap<String,MessageHeaders>,
+	current_message: String,
+}
+impl UserData {
+	fn new() -> UserData {
+		UserData {
+			current_mailbox: "".to_string(),
+			current_message: "".to_string(),
+			mailboxes: vec![],
+			messages: HashMap::new(),
+		}.load_mailboxes()
+	}
+	fn load_mailboxes(mut self) -> Self {
+		let full_path = MAILDIR_PATH.clone();
+		self.mailboxes = walkdir::WalkDir::new(full_path.clone())
+			.into_iter()
+			.filter_entry(|e| e.file_type().is_dir())
+			.map(|e| e.unwrap().into_path().display().to_string()
+				.replace("\\","/")
+				.replace(full_path,"")
+				.replace("\u{f022}",":"))
+			.collect::<Vec<String>>();
+		self
+	}
+	fn set_current_mailbox(&mut self, path: String) -> &Self {
+		let full_path = format!("{}/{}", MAILDIR_PATH, path);
+		self.messages = walkdir::WalkDir::new(full_path.clone())
+			.min_depth(1)
+			.max_depth(2)
+			.into_iter()
+			.filter_entry(|e| e.file_type().is_file())
+			.map(|e| {
+				let e = e.unwrap();
+				let real_path = e.into_path();
+				let path = real_path.display().to_string()
+					.replace("\\","/")
+					.replace(&full_path, "")
+					.replace("\u{f022}",":");
+
+				let mut headers = HashMap::new();
+				match fs::File::open(real_path.clone()) {
+					Ok(mut f) => {
+						let mut d = Vec::<u8>::new();
+						f.read_to_end(&mut d).unwrap();
+						let (parsed, _) = mailparse::parse_headers(&d).unwrap();
+						headers = parsed.into_iter()
+							.filter(|h| match h.get_key().as_str() {
+								"From" | "Date" | "Subject" => true,
+								_ => false,
+							})
+							.map(|h| { (h.get_key(), h.get_value()) })
+							.collect();
+						let date = mailparse::dateparse(&headers["Date"]).unwrap();
+						let date: DateTime<Local> = Utc.timestamp(date, 0).into();
+						let date = date.format("%Y-%m-%d %H:%M:%S").to_string();
+						*(headers.get_mut("Date").unwrap()) = date;
+					},
+					_ => {
+						eprintln!("Couldn't open file {}", real_path.clone().display());
+					}
+				};
+
+				(path, headers)
+			})
+			.collect::<HashMap<_,_>>();
+		self.current_mailbox = path;
+		self
+	}
+}
+
 
 use html_sanitizer::TagParser;
 fn sanitize(input: String) -> String {
@@ -70,25 +147,13 @@ fn sanitize(input: String) -> String {
 
 use std::fs;
 use std::io::prelude::*;
-fn load_mail() -> Message {
-	let maildir = Maildir::from("E:/maildir/hotmail/INBOX");
-	let entries = maildir.list_new();
-	let entry = entries.last().unwrap().unwrap();
-	//let parsed = entry.parsed().unwrap();
-
-	let mut f = fs::File::open(entry.path()).unwrap();
-	let mut d = Vec::<u8>::new();
-	f.read_to_end(&mut d).unwrap();
-
-	let parsed = mailparse::parse_mail(&d).unwrap();
-	let msg = Message::from_parsed_mail(&parsed);
-	msg
-}
 
 #[derive(Deserialize)]
 #[serde(tag = "cmd")]
 enum Cmd {
+	Init {},
 	LoadMail {},
+	SetMailbox { path: String },
 	Browse { url: String },
 	Exit {},
 }
@@ -125,54 +190,33 @@ fn assets(req: HttpRequest) -> HttpResponse {
 	}
 }
 
-fn get_mail(req: HttpRequest) -> HttpResponse {
-	let _path = if req.path() == "/" {
-		"index.html"
-	} else {
-		&req.path()[1..] // trim leading '/'
-	};
-
-	HttpResponse::Ok()
-		//.content_type("application/json; charset=utf8")
-		.json(load_mail())
-
-
-	/*
-	// query the file from embedded asset with specified path
-	match Asset::get(path) {
-		Some(content) => {
-			let body: Body = match content {
-				Cow::Borrowed(bytes) => bytes.into(),
-				Cow::Owned(bytes) => bytes.into(),
-			};
+fn get_mail(path: web::Path<String>) -> HttpResponse {
+	let path = path.to_string().replace(":", "\u{f022}");
+	let path = format!("{}/{}", MAILDIR_PATH, path);
+	match fs::File::open(path.clone()) {
+		Ok(mut f) => {
+			let mut d = Vec::<u8>::new();
+			f.read_to_end(&mut d).unwrap();
+			let parsed = mailparse::parse_mail(&d).unwrap();
+			let msg = Message::from_parsed_mail(&parsed);
 			HttpResponse::Ok()
-				.content_type(mime_guess::from_path(path).first_or_octet_stream().as_ref())
-				.body(body)
-		}
-		None => HttpResponse::NotFound().body("404 Not Found"),
+				//.content_type("application/json; charset=utf8")
+				.json(msg)
+		},
+		_ => {
+			eprintln!("404 {}", path);
+			HttpResponse::NotFound().body("Not Found")
+		},
 	}
-	*/
 }
 
-fn list_boxes() -> HttpResponse {
-	let full_path = "E:/Maildir";
-	let ret: Vec<String> = walkdir::WalkDir::new(full_path.clone())
-		.into_iter()
-		.filter_entry(|e| e.file_type().is_dir())
-		.map(|e| e.unwrap().into_path().display().to_string().replace("\\","/").replace(full_path,""))
-		.collect();
-	HttpResponse::Ok()
-		.json(ret)
-}
-
-fn mailbox(path: web::Path<String>) -> HttpResponse {
-	let full_path = format!("E:/Maildir/{}", path);
-	let ret: Vec<String> = walkdir::WalkDir::new(full_path.clone())
-		.into_iter()
-		.map(|e| e.unwrap().into_path().display().to_string().replace("\\","/").replace(&full_path, ""))
-		.collect();
-	HttpResponse::Ok()
-		.json(ret)
+fn render(webview: &mut WebView<UserData>) -> WVResult {
+    let call = {
+        let data = webview.user_data();
+        println!("{:#?}", data);
+        format!("rpc.render({})", serde_json::to_string(data).unwrap())
+    };
+    webview.eval(&call)
 }
 
 fn main() {
@@ -185,10 +229,14 @@ fn main() {
 
 		let server = HttpServer::new(|| {
 				App::new()
-					.route("/mail/message.json", web::get().to(get_mail))
-					//.route("/mail/message/{msg_id}/headers.json", web::get().to(mail_headers))
-					.route("/mail/boxes", web::get().to(list_boxes))
-					.route("/mail/box/{dir:.*}", web::get().to(mailbox))
+					//.route("/mail/message.json", web::get().to(get_mail))
+					//.route("/mail/box/{dir:.*}/{msg_id}/headers.json", web::get().to(mail_headers))
+					.route("/mail/messages/{path:.*}", web::get().to(get_mail))
+					/*.route("/mail/boxes", web::get().to(|| {
+						HttpResponse::Ok()
+							.json()
+					}))*/
+					//.route("/mail/box/{dir:.*}", web::get().to(mailbox))
 					.route("*", web::get().to(assets))
 			})
 			.bind("127.0.0.1:0")
@@ -210,18 +258,24 @@ fn main() {
 		.size(1024, 768)
 		.resizable(true)
 		.debug(true)
-		.user_data(UserData { name: "dctucker".to_string() })
+		.user_data(UserData::new())
 		.invoke_handler(|webview, arg| {
-            use Cmd::*;
-            if let Ok(cmd) = serde_json::from_str(arg) {
+			use Cmd::*;
+			if let Ok(cmd) = serde_json::from_str(arg) {
+                let data = webview.user_data_mut();
 				match cmd {
+					Init {} => {
+					},
 					LoadMail {} => {
 						/*
-						let headers = load_mail();
-						let command = format!("setPreview({})", &headers);
+						   let headers = load_mail();
+						   let command = format!("setPreview({})", &headers);
 						//println!("{}", command);
 						webview.eval(&command).unwrap();
 						*/
+					},
+					SetMailbox { path } => {
+						data.set_current_mailbox(path);
 					},
 					Browse { url } => {
 						webbrowser::open(&url).unwrap();
@@ -231,7 +285,7 @@ fn main() {
 			} else {
 				eprintln!("Invalid command: {}", arg);
 			}
-			Ok(())
+			render(webview)
 		})
 	.build().unwrap();
 

@@ -7,6 +7,21 @@ rpc = {
 		args.cmd = cmd;
 		external.invoke(JSON.stringify(args));
 	},
+	init : function() { rpc.invoke('Init'); },
+	render: function(data) {
+		document.getElementById("mailbox_list").innerHTML = formatMailboxList(data.mailboxes);
+		document.getElementById("mail").getElementsByTagName("tbody")[0].innerHTML = formatMessages(data.messages);
+		rpc.user_data = data;
+	},
+	setMailbox: (i) => {
+		box = rpc.user_data.mailboxes[i];
+		rpc.invoke("SetMailbox", {path: box});
+		rpc.user_data.current_mailbox = box;
+	},
+};
+
+window.onload = () => {
+	rpc.init();
 };
 
 var content_loaded = function(){
@@ -40,10 +55,9 @@ var content_loaded = function(){
 	}
 
 	//rpc.invoke('LoadMail');
-	fetch('/mail/message.json')
+	fetch('/mail/messages/hotmail/Inbox/cur/1597719151_1.1.99720b41fab8,U=176,FMD5=3882d32c66e7e768145ecd8f104b0c08:2,S')
 		.then(resp => resp.json())
 		.then(data => setPreview(data));
-
 };
 
 
@@ -51,12 +65,15 @@ if (
 	document.readyState === "complete" ||
 	(document.readyState !== "loading" && !document.documentElement.doScroll)
 ) {
-  content_loaded();
+	content_loaded();
 } else {
   document.addEventListener("DOMContentLoaded", content_loaded);
 }
 
 function escapeHtml(s) {
+	if( s === undefined ){
+		return "N/A";
+	}
 	return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
@@ -89,6 +106,31 @@ function formatHeaders(headers) {
 		} else {
 			html += "<tr><th style='text-align:right'>"+keys[h]+": </th><td>"+val+"</td></tr>";
 		}
+	}
+	return html;
+}
+
+function formatMailboxList(list) {
+	html = "";
+	for( i in list ){
+		box = list[i];
+		html += "<li onclick='rpc.setMailbox("+i+")'>";
+		html += box;
+		html += "</li>";
+	}
+	return html;
+}
+
+function formatMessages(messages) {
+	html = "";
+	for( i in messages ){
+		m = messages[i];
+		html += "<tr>";
+		html += "<td><input type='checkbox' value='"+i+"' /></td>";
+		html += "<td>" + escapeHtml(m.From   ) + "</td>";
+		html += "<td>" + escapeHtml(m.Subject) + "</td>";
+		html += "<td>" + escapeHtml(m.Date   ) + "</td>";
+		html += "</tr>";
 	}
 	return html;
 }

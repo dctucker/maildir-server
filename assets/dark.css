@@ -26,3 +26,6 @@ body {
   background: #333333;
 }
 
+#mailbox_list li:hover {
+	background-color: #543;
+}
