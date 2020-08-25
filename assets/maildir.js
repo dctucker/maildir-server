@@ -57,7 +57,7 @@ var content_loaded = function(){
 	}
 
 	//rpc.invoke('LoadMail');
-	fetch('/mail/messages/hotmail/Inbox/cur/1597719151_1.1.99720b41fab8,U=176,FMD5=3882d32c66e7e768145ecd8f104b0c08:2,S')
+	fetch('/mail/messages/gmail/Arelí/cur/1597730753_1.1.18955d0b6ab1,U=3,FMD5=12cbe7315a369d36a41b7a83f277c87d:2,S')
 		.then(resp => resp.json())
 		.then(data => setPreview(data));
 };
@@ -79,23 +79,50 @@ function escapeHtml(s) {
 	return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
-function formatBody(part) {
-	html = "<hr />";
-	if( part.headers["Content-Type"].startsWith("text/html") ) {
-		html += "<div class='html'>"+part.body+"</div>"; // risky
-	} else if( part.headers["Content-Type"].startsWith("text/plain") ) {
-		html += "<section class='accordion'>";
+function toBinary(string) {
+	const codeUnits = new Uint16Array(string.length);
+	for (let i = 0; i < codeUnits.length; i++) {
+		codeUnits[i] = string.charCodeAt(i);
+	}
+	return String.fromCharCode(...new Uint8Array(codeUnits.buffer));
+}
+
+function formatBody(part, elem) {
+	elem.appendChild(document.createElement('hr'));
+
+	ctype = part.headers["Content-Type"];
+	if( ctype.startsWith("text/html") ) {
+		div = document.createElement("div");
+		div.classList.add("html");
+		div.innerHTML = part.body;
+		elem.appendChild(div);
+	} else if( ctype.startsWith("text/plain") ) {
+		section = document.createElement('section');
+		section.classList.add('accordion');
+		html = "";
 		html += "<input type='checkbox' name='collapse' id='handle1'>";
 		html += "<label for='handle1'>Content-Type: text/plain</label>";
-		html += "<div class='content plain'>" + part.body + "</div>";
-		html += "</section>";
+		html += "<div class='content plain'>" + escapeHtml(part.body) + "</div>";
+		section.innerHTML = html;
+		elem.appendChild(section);
+	} else if( ctype.startsWith("image") ) {
+		div = document.createElement('div'); div.classList.add('image');
+		img = document.createElement('img');
+		ct = ctype.split(";")[0];
+		img.src = "data:" + ct + ";base64," + btoa(toBinary(part.body));
+		div.appendChild(img);
+		elem.appendChild(div);
 	} else {
-		html += escapeHtml(part.body);
+		div = document.createElement('div');
+		div.innerHTML = escapeHtml(part.body);
+		elem.appendChild(div);
 	}
 	for( p in part.parts ){
-		html += "<div class='part'>" + formatBody(part.parts[p]) + "</div>";
+		div = document.createElement('div');
+		div.classList.add('part');
+		formatBody(part.parts[p], div);
+		elem.appendChild(div);
 	}
-	return html;
 }
 
 function formatHeaders(headers) {
@@ -138,7 +165,9 @@ function formatMessages(messages) {
 }
 
 function setPreview(data) {
+	rpc.preview_data = data;
 	document.getElementById("headers_label").innerHTML = data.headers["From"] + " &mdash; " + data.headers["Subject"];
 	document.getElementById("headers").innerHTML = formatHeaders(data.headers);
-	document.getElementById("body").innerHTML = formatBody(data);
+	document.getElementById("body").innerHTML = "";
+	formatBody(data, document.getElementById("body"));
 }

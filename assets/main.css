@@ -83,6 +83,7 @@ div {
 	width: 100%;
 	border-spacing: 0px;
 	border-collapse: collapse;
+	table-layout: fixed;
 }
 #mail table thead tr th {
 	text-align: left;
@@ -92,7 +93,8 @@ div {
 	border-style: solid;
 	border-width: 1px;
 	white-space: pre;
-	text-overflow: clip;
+	text-overflow: ellipsis;
+	overflow-x: hidden;
 }
 #mail table tr.new td {
 	font-weight: bold;

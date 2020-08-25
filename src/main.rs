@@ -49,6 +49,38 @@ impl Message {
 	}
 }
 
+fn format_filename(s: String, full_path: &str) -> String {
+	s.replace("\\","/")
+		.replace(full_path,"")
+		.replace("\u{f022}",":")
+}
+fn format_date(s: String) -> String {
+	let date = mailparse::dateparse(&s).unwrap();
+	let date: DateTime<Local> = Utc.timestamp(date, 0).into();
+	date.format("%Y-%m-%d %H:%M:%S").to_string()
+}
+fn format_headers(parsed: Vec<mailparse::MailHeader>, new: usize) -> HashMap<String,String> {
+	let mut headers = parsed.iter().filter(|h| match h.get_key().as_str() {
+			"From" | "Date" | "Subject" => true,
+			_ => false,
+		})
+		.map(|h| { (h.get_key(), h.get_value()) })
+		.collect::<HashMap<String,String>>();
+	*(headers.get_mut("Date").unwrap()) = format_date(headers["Date"].clone());
+	headers.entry("new".to_string()).or_insert(format!("{}", new));
+	headers
+}
+fn map_messages(list: maildir::MailEntries, full_path: String, new: usize) -> HashMap<String,HashMap<String,String>> {
+	list.map(|e| {
+		let mut e = e.unwrap();
+		let real_path = e.path();
+		let path = format_filename(real_path.display().to_string(), &full_path);
+		let parsed = e.headers().unwrap();
+		let headers = format_headers(parsed, new);
+		(path, headers)
+	}).collect::<HashMap<_,_>>()
+}
+
 #[derive(Debug,Serialize)]
 struct UserData {
 	mailboxes: Vec<String>,
@@ -70,108 +102,16 @@ impl UserData {
 		self.mailboxes = walkdir::WalkDir::new(full_path.clone())
 			.into_iter()
 			.filter_entry(|e| e.file_type().is_dir())
-			.map(|e| e.unwrap().into_path().display().to_string()
-				.replace("\\","/")
-				.replace(full_path,"")
-				.replace("\u{f022}",":"))
-			.filter(|s| ! (s.ends_with("/new") || s.ends_with("/cur") || s.ends_with("/tmp")) )
+			.map(|e| format_filename(e.unwrap().into_path().display().to_string(), full_path))
+			.filter(|s| ! (s.ends_with("/new") || s.ends_with("/cur") || s.ends_with("/tmp") || s.len() == 0) )
 			.collect::<Vec<String>>();
 		self
 	}
 	fn set_current_mailbox(&mut self, path: String) -> &Self {
 		let full_path = format!("{}/{}", MAILDIR_PATH, path);
-		self.messages = maildir::Maildir::from(full_path.clone())
-			.list_new()
-			.map(|e| {
-				let mut e = e.unwrap();
-				let real_path = e.path();
-				let path = real_path.display().to_string()
-					.replace("\\","/")
-					.replace(&full_path, "")
-					.replace("\u{f022}",":");
-
-				let parsed = e.headers().unwrap();
-				let mut headers = parsed.iter().filter(|h| match h.get_key().as_str() {
-						"From" | "Date" | "Subject" => true,
-						_ => false,
-					})
-					.map(|h| { (h.get_key(), h.get_value()) })
-					.collect::<HashMap<String,String>>();
-				let date = mailparse::dateparse(&headers["Date"]).unwrap();
-				let date: DateTime<Local> = Utc.timestamp(date, 0).into();
-				let date = date.format("%Y-%m-%d %H:%M:%S").to_string();
-				*(headers.get_mut("Date").unwrap()) = date;
-				headers.entry("new".to_string()).or_insert("1".to_string());
-				(path, headers)
-			})
-			.collect::<HashMap<_,_>>();
-
-		self.messages.extend( maildir::Maildir::from(full_path.clone())
-			.list_cur()
-			.map(|e| {
-				let mut e = e.unwrap();
-				let real_path = e.path();
-				let path = real_path.display().to_string()
-					.replace("\\","/")
-					.replace(&full_path, "")
-					.replace("\u{f022}",":");
-
-				let parsed = e.headers().unwrap();
-				let mut headers = parsed.iter().filter(|h| match h.get_key().as_str() {
-						"From" | "Date" | "Subject" => true,
-						_ => false,
-					})
-					.map(|h| { (h.get_key(), h.get_value()) })
-					.collect::<HashMap<String,String>>();
-				let date = mailparse::dateparse(&headers["Date"]).unwrap();
-				let date: DateTime<Local> = Utc.timestamp(date, 0).into();
-				let date = date.format("%Y-%m-%d %H:%M:%S").to_string();
-				*(headers.get_mut("Date").unwrap()) = date;
-				headers.entry("new".to_string()).or_insert("0".to_string());
-				(path, headers)
-			})
-			.collect::<HashMap<_,_>>() );
-		/*
-		self.messages = walkdir::WalkDir::new(full_path.clone())
-			.min_depth(1)
-			.max_depth(2)
-			.into_iter()
-			.filter_entry(|e| e.file_type().is_file())
-			.map(|e| {
-				let e = e.unwrap();
-				let real_path = e.into_path();
-				let path = real_path.display().to_string()
-					.replace("\\","/")
-					.replace(&full_path, "")
-					.replace("\u{f022}",":");
-
-				let mut headers = HashMap::new();
-				match fs::File::open(real_path.clone()) {
-					Ok(mut f) => {
-						let mut d = Vec::<u8>::new();
-						f.read_to_end(&mut d).unwrap();
-						let (parsed, _) = mailparse::parse_headers(&d).unwrap();
-						headers = parsed.into_iter()
-							.filter(|h| match h.get_key().as_str() {
-								"From" | "Date" | "Subject" => true,
-								_ => false,
-							})
-							.map(|h| { (h.get_key(), h.get_value()) })
-							.collect();
-						let date = mailparse::dateparse(&headers["Date"]).unwrap();
-						let date: DateTime<Local> = Utc.timestamp(date, 0).into();
-						let date = date.format("%Y-%m-%d %H:%M:%S").to_string();
-						*(headers.get_mut("Date").unwrap()) = date;
-					},
-					_ => {
-						eprintln!("Couldn't open file {}", real_path.clone().display());
-					}
-				};
-
-				(path, headers)
-			})
-			.collect::<HashMap<_,_>>();
-		*/
+		let dir = maildir::Maildir::from(full_path.clone());
+		self.messages = map_messages( dir.list_new(), full_path.clone(), 1 );
+		self.messages.extend( map_messages( dir.list_cur(), full_path.clone(), 0 ) );
 		self.current_mailbox = path;
 		self
 	}

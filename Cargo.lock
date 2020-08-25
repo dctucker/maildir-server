@@ -991,7 +991,7 @@ name = "maildir"
 version = "0.4.2"
 dependencies = [
  "gethostname",
- "mailparse 0.12.2",
+ "mailparse",
 ]
 
 [[package]]
@@ -1011,7 +1011,7 @@ dependencies = [
  "futures",
  "html_sanitizer",
  "maildir 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "mailparse 0.13.0",
+ "mailparse",
  "mime_guess",
  "rust-embed",
  "serde",
@@ -1021,17 +1021,6 @@ dependencies = [
  "web-view",
  "webbrowser",
  "winres",
-]
-
-[[package]]
-name = "mailparse"
-version = "0.12.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "336d59e50513349423fa89bdadef5b5c49972a6ce0b66d3b2c7c8b7ab3969faf"
-dependencies = [
- "base64 0.12.3",
- "charset",
- "quoted_printable",
 ]
 
 [[package]]
