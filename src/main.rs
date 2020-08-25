@@ -74,11 +74,64 @@ impl UserData {
 				.replace("\\","/")
 				.replace(full_path,"")
 				.replace("\u{f022}",":"))
+			.filter(|s| ! (s.ends_with("/new") || s.ends_with("/cur") || s.ends_with("/tmp")) )
 			.collect::<Vec<String>>();
 		self
 	}
 	fn set_current_mailbox(&mut self, path: String) -> &Self {
 		let full_path = format!("{}/{}", MAILDIR_PATH, path);
+		self.messages = maildir::Maildir::from(full_path.clone())
+			.list_new()
+			.map(|e| {
+				let mut e = e.unwrap();
+				let real_path = e.path();
+				let path = real_path.display().to_string()
+					.replace("\\","/")
+					.replace(&full_path, "")
+					.replace("\u{f022}",":");
+
+				let parsed = e.headers().unwrap();
+				let mut headers = parsed.iter().filter(|h| match h.get_key().as_str() {
+						"From" | "Date" | "Subject" => true,
+						_ => false,
+					})
+					.map(|h| { (h.get_key(), h.get_value()) })
+					.collect::<HashMap<String,String>>();
+				let date = mailparse::dateparse(&headers["Date"]).unwrap();
+				let date: DateTime<Local> = Utc.timestamp(date, 0).into();
+				let date = date.format("%Y-%m-%d %H:%M:%S").to_string();
+				*(headers.get_mut("Date").unwrap()) = date;
+				headers.entry("new".to_string()).or_insert("1".to_string());
+				(path, headers)
+			})
+			.collect::<HashMap<_,_>>();
+
+		self.messages.extend( maildir::Maildir::from(full_path.clone())
+			.list_cur()
+			.map(|e| {
+				let mut e = e.unwrap();
+				let real_path = e.path();
+				let path = real_path.display().to_string()
+					.replace("\\","/")
+					.replace(&full_path, "")
+					.replace("\u{f022}",":");
+
+				let parsed = e.headers().unwrap();
+				let mut headers = parsed.iter().filter(|h| match h.get_key().as_str() {
+						"From" | "Date" | "Subject" => true,
+						_ => false,
+					})
+					.map(|h| { (h.get_key(), h.get_value()) })
+					.collect::<HashMap<String,String>>();
+				let date = mailparse::dateparse(&headers["Date"]).unwrap();
+				let date: DateTime<Local> = Utc.timestamp(date, 0).into();
+				let date = date.format("%Y-%m-%d %H:%M:%S").to_string();
+				*(headers.get_mut("Date").unwrap()) = date;
+				headers.entry("new".to_string()).or_insert("0".to_string());
+				(path, headers)
+			})
+			.collect::<HashMap<_,_>>() );
+		/*
 		self.messages = walkdir::WalkDir::new(full_path.clone())
 			.min_depth(1)
 			.max_depth(2)
@@ -118,6 +171,7 @@ impl UserData {
 				(path, headers)
 			})
 			.collect::<HashMap<_,_>>();
+		*/
 		self.current_mailbox = path;
 		self
 	}
@@ -265,6 +319,7 @@ fn main() {
                 let data = webview.user_data_mut();
 				match cmd {
 					Init {} => {
+						render(webview).unwrap();
 					},
 					LoadMail {} => {
 						/*
@@ -276,6 +331,10 @@ fn main() {
 					},
 					SetMailbox { path } => {
 						data.set_current_mailbox(path);
+						webview.eval(&format!("rpc.render({})", serde_json::json!({
+							"current_mailbox": webview.user_data().current_mailbox,
+							"messages": webview.user_data().messages,
+						}))).unwrap();
 					},
 					Browse { url } => {
 						webbrowser::open(&url).unwrap();
@@ -285,7 +344,7 @@ fn main() {
 			} else {
 				eprintln!("Invalid command: {}", arg);
 			}
-			render(webview)
+			Ok(())
 		})
 	.build().unwrap();
 

@@ -9,11 +9,12 @@ rpc = {
 	},
 	init : function() { rpc.invoke('Init'); },
 	render: function(data) {
-		document.getElementById("mailbox_list").innerHTML = formatMailboxList(data.mailboxes);
-		document.getElementById("mail").getElementsByTagName("tbody")[0].innerHTML = formatMessages(data.messages);
-		rpc.user_data = data;
+		Object.assign(rpc.user_data, data);
+		document.getElementById("mailbox_list").innerHTML = formatMailboxList(rpc.user_data.mailboxes);
+		document.getElementById("mail").getElementsByTagName("tbody")[0].innerHTML = formatMessages(rpc.user_data.messages);
 	},
 	setMailbox: (i) => {
+		document.getElementById("mail").getElementsByTagName("tbody")[0].innerHTML  = "<tr><td colspan='4'>Loading...</td></tr>";
 		box = rpc.user_data.mailboxes[i];
 		rpc.invoke("SetMailbox", {path: box});
 		rpc.user_data.current_mailbox = box;
@@ -21,6 +22,7 @@ rpc = {
 };
 
 window.onload = () => {
+	rpc.user_data = {};
 	rpc.init();
 };
 
@@ -125,7 +127,7 @@ function formatMessages(messages) {
 	html = "";
 	for( i in messages ){
 		m = messages[i];
-		html += "<tr>";
+		html += "<tr class='"+(m['new'] == 1 ? "new" : "")+"'>";
 		html += "<td><input type='checkbox' value='"+i+"' /></td>";
 		html += "<td>" + escapeHtml(m.From   ) + "</td>";
 		html += "<td>" + escapeHtml(m.Subject) + "</td>";
