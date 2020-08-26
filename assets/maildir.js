@@ -19,6 +19,10 @@ rpc = {
 		rpc.invoke("SetMailbox", {path: box});
 		rpc.user_data.current_mailbox = box;
 	},
+	setMessage: (i) => {
+		rpc.user_data.current_message = i;
+		fetchBody().then(resp => resp.json()).then(data => setPreview(data));
+	},
 };
 
 window.onload = () => {
@@ -56,10 +60,12 @@ var content_loaded = function(){
 		}
 	}
 
+	/*
 	//rpc.invoke('LoadMail');
 	fetch('/mail/messages/gmail/Arelí/cur/1597730753_1.1.18955d0b6ab1,U=3,FMD5=12cbe7315a369d36a41b7a83f277c87d:2,S')
 		.then(resp => resp.json())
 		.then(data => setPreview(data));
+	*/
 };
 
 
@@ -87,42 +93,62 @@ function toBinary(string) {
 	return String.fromCharCode(...new Uint8Array(codeUnits.buffer));
 }
 
-function formatBody(part, elem) {
-	elem.appendChild(document.createElement('hr'));
+function fetchBody(loc) {
+	path = '/mail/messages';
+	path += rpc.user_data.current_mailbox;
+	path += '/';
+	path += rpc.user_data.current_message;
+	if( loc !== undefined ){
+		str = loc.join(',');
+		if( str == "" ){
+			str = ",";
+		}
+		path += '?' + str;
+	}
+	return fetch(path);
+}
 
-	ctype = part.headers["Content-Type"];
-	if( ctype.startsWith("text/html") ) {
-		div = document.createElement("div");
-		div.classList.add("html");
-		div.innerHTML = part.body;
-		elem.appendChild(div);
-	} else if( ctype.startsWith("text/plain") ) {
-		section = document.createElement('section');
-		section.classList.add('accordion');
-		html = "";
-		html += "<input type='checkbox' name='collapse' id='handle1'>";
-		html += "<label for='handle1'>Content-Type: text/plain</label>";
-		html += "<div class='content plain'>" + escapeHtml(part.body) + "</div>";
-		section.innerHTML = html;
-		elem.appendChild(section);
-	} else if( ctype.startsWith("image") ) {
-		div = document.createElement('div'); div.classList.add('image');
-		img = document.createElement('img');
-		ct = ctype.split(";")[0];
-		img.src = "data:" + ct + ";base64," + btoa(toBinary(part.body));
-		div.appendChild(img);
-		elem.appendChild(div);
-	} else {
-		div = document.createElement('div');
-		div.innerHTML = escapeHtml(part.body);
-		elem.appendChild(div);
+function formatBody(elem, part, loc) {
+	if( loc === undefined ){
+		loc = [];
 	}
-	for( p in part.parts ){
-		div = document.createElement('div');
-		div.classList.add('part');
-		formatBody(part.parts[p], div);
-		elem.appendChild(div);
-	}
+	fetchBody(loc).then(resp => resp.blob()).then(body => {
+		elem.appendChild(document.createElement('hr'));
+
+		ctype = part.headers["Content-Type"];
+		if( ctype.startsWith("text/html") ) {
+			div = document.createElement("div");
+			div.classList.add("html");
+			div.innerHTML = part.body;
+			elem.appendChild(div);
+		} else if( ctype.startsWith("text/plain") ) {
+			section = document.createElement('section');
+			section.classList.add('accordion');
+			html = "";
+			html += "<input type='checkbox' name='collapse' id='handle1'>";
+			html += "<label for='handle1'>Content-Type: text/plain</label>";
+			html += "<div class='content plain'>" + escapeHtml(part.body) + "</div>";
+			section.innerHTML = html;
+			elem.appendChild(section);
+		} else if( ctype.startsWith("image") ) {
+			div = document.createElement('div'); div.classList.add('image');
+			img = document.createElement('img');
+			ct = ctype.split(";")[0];
+			img.src = "data:" + ct + ";base64," + btoa(toBinary(part.body));
+			div.appendChild(img);
+			elem.appendChild(div);
+		} else {
+			div = document.createElement('div');
+			div.innerHTML = escapeHtml(part.body);
+			elem.appendChild(div);
+		}
+		for( p in part.parts ){
+			div = document.createElement('div');
+			div.classList.add('part');
+			formatBody(div, part.parts[p], loc.concat(p));
+			elem.appendChild(div);
+		}
+	});
 }
 
 function formatHeaders(headers) {
@@ -154,7 +180,7 @@ function formatMessages(messages) {
 	html = "";
 	for( i in messages ){
 		m = messages[i];
-		html += "<tr class='"+(m['new'] == 1 ? "new" : "")+"'>";
+		html += "<tr class='"+(m['new'] == 1 ? "new" : "")+"' onclick='rpc.setMessage(\""+i+"\")' >";
 		html += "<td><input type='checkbox' value='"+i+"' /></td>";
 		html += "<td>" + escapeHtml(m.From   ) + "</td>";
 		html += "<td>" + escapeHtml(m.Subject) + "</td>";
@@ -169,5 +195,5 @@ function setPreview(data) {
 	document.getElementById("headers_label").innerHTML = data.headers["From"] + " &mdash; " + data.headers["Subject"];
 	document.getElementById("headers").innerHTML = formatHeaders(data.headers);
 	document.getElementById("body").innerHTML = "";
-	formatBody(data, document.getElementById("body"));
+	formatBody(document.getElementById("body"), data);
 }

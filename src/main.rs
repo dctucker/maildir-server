@@ -11,6 +11,10 @@ extern crate rust_embed;
 extern crate chrono;
 use chrono::prelude::*;
 
+#[macro_use]
+extern crate cached;
+use cached::SizedCache;
+
 extern crate web_view;
 extern crate serde_json;
 #[macro_use]
@@ -23,8 +27,8 @@ use serde::{Serialize};
 
 type MessageHeaders = HashMap<String,String>;
 
-#[derive(Serialize)]
-struct Message {
+#[derive(Serialize, Clone)]
+pub struct Message {
 	headers: MessageHeaders,
 	parts: Vec<Message>,
 	ctype: String,
@@ -45,6 +49,14 @@ impl Message {
 			body: body,
 			ctype: parsed.ctype.mimetype.clone(),
 			parts: parsed.subparts.iter().map(|s| { Message::from_parsed_mail(s) }).collect(),
+		}
+	}
+	fn skeleton(&self) -> Message {
+		Message {
+			headers: self.headers.clone(),
+			ctype: self.ctype.clone(),
+			parts: self.parts.iter().map(|s| s.skeleton() ).collect(),
+			body: "".to_string(),
 		}
 	}
 }
@@ -184,23 +196,68 @@ fn assets(req: HttpRequest) -> HttpResponse {
 	}
 }
 
-fn get_mail(path: web::Path<String>) -> HttpResponse {
-	let path = path.to_string().replace(":", "\u{f022}");
-	let path = format!("{}/{}", MAILDIR_PATH, path);
-	match fs::File::open(path.clone()) {
-		Ok(mut f) => {
+cached_result!{
+	MESSAGES: SizedCache<String, Message> = SizedCache::with_size(50);
+	fn load_message(path: String) -> Result<Message, ()> = {
+		let path = path.replace(":", "\u{f022}");
+		let path = format!("{}/{}", MAILDIR_PATH, path);
+		if let Ok(mut f) = fs::File::open(path.clone()) {
 			let mut d = Vec::<u8>::new();
 			f.read_to_end(&mut d).unwrap();
 			let parsed = mailparse::parse_mail(&d).unwrap();
 			let msg = Message::from_parsed_mail(&parsed);
+			Ok(msg)
+		} else {
+			eprintln!("Unable to open {}", path.clone());
+			Err(())
+		}
+	}
+}
+
+type Loc = Vec<usize>;
+
+/*
+fn traverse_message(msg: &Message, loc: Loc) -> Result<&Message, ()> {
+	let mut part = &msg;
+	for n in loc.into_iter() {
+		part = &(&part.parts[n]);
+	}
+	Ok(part)
+}
+*/
+
+fn traverse_message<'a>(msg: &'a Message, loc: &[usize]) -> Result<&'a Message, ()> {
+	if loc.len() == 1 {
+		return Ok(&msg.parts[loc[0]]);
+	}
+	traverse_message(&msg.parts[loc[0]], &loc[1..])
+}
+
+
+fn get_mail(req: HttpRequest) -> HttpResponse {
+	let path = req.match_info().get("path").unwrap();
+	if let Ok(msg) = load_message(path.to_string()) {
+		let query = req.query_string();
+		if query.len() == 0 {
+			return HttpResponse::Ok().json(msg.skeleton());
+		} else if query == "," {
+			return HttpResponse::Ok()
+				.header("content-type", msg.ctype.clone())
+				.body(msg.body.clone())
+		}
+		println!("query = {}", query.clone());
+		let loc = query.split(",").map(|e| usize::from_str_radix(e, 10).unwrap()).collect::<Vec<usize>>();
+		if let Ok(m) = traverse_message(&msg, &loc) {
 			HttpResponse::Ok()
-				//.content_type("application/json; charset=utf8")
-				.json(msg)
-		},
-		_ => {
-			eprintln!("404 {}", path);
+				.header("content-type", m.ctype.clone())
+				.body(m.body.clone())
+		} else {
+			eprintln!("404 traversal {}", path);
 			HttpResponse::NotFound().body("Not Found")
-		},
+		}
+	} else {
+		eprintln!("404 Unable to load message {}", path.to_string());
+		HttpResponse::NotFound().body("Not Found")
 	}
 }
 
@@ -261,14 +318,7 @@ fn main() {
 					Init {} => {
 						render(webview).unwrap();
 					},
-					LoadMail {} => {
-						/*
-						   let headers = load_mail();
-						   let command = format!("setPreview({})", &headers);
-						//println!("{}", command);
-						webview.eval(&command).unwrap();
-						*/
-					},
+					LoadMail {} => {},
 					SetMailbox { path } => {
 						data.set_current_mailbox(path);
 						webview.eval(&format!("rpc.render({})", serde_json::json!({
