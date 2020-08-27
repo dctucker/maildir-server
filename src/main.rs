@@ -32,7 +32,7 @@ pub struct Message {
 	headers: MessageHeaders,
 	parts: Vec<Message>,
 	ctype: String,
-	body: String,
+	body: Vec<u8>,
 }
 
 extern crate maildir;
@@ -40,13 +40,13 @@ use mailparse::ParsedMail;
 
 impl Message {
 	fn from_parsed_mail(parsed: &ParsedMail<'_>) -> Self {
-		let mut body: String = parsed.get_body().unwrap();
-		if parsed.ctype.mimetype.starts_with("text/html") {
-			body = sanitize(body);
-		}
 		Message {
 			headers: parsed.headers.iter().map(|h| { (h.get_key(), h.get_value()) }).collect(),
-			body: body,
+			body: if parsed.ctype.mimetype.starts_with("text/html") {
+					sanitize(parsed.get_body().unwrap()).into_bytes()
+				} else {
+					parsed.get_body_raw().unwrap()
+				},
 			ctype: parsed.ctype.mimetype.clone(),
 			parts: parsed.subparts.iter().map(|s| { Message::from_parsed_mail(s) }).collect(),
 		}
@@ -56,7 +56,7 @@ impl Message {
 			headers: self.headers.clone(),
 			ctype: self.ctype.clone(),
 			parts: self.parts.iter().map(|s| s.skeleton() ).collect(),
-			body: "".to_string(),
+			body: vec![],
 		}
 	}
 }
@@ -214,18 +214,6 @@ cached_result!{
 	}
 }
 
-type Loc = Vec<usize>;
-
-/*
-fn traverse_message(msg: &Message, loc: Loc) -> Result<&Message, ()> {
-	let mut part = &msg;
-	for n in loc.into_iter() {
-		part = &(&part.parts[n]);
-	}
-	Ok(part)
-}
-*/
-
 fn traverse_message<'a>(msg: &'a Message, loc: &[usize]) -> Result<&'a Message, ()> {
 	if loc.len() == 1 {
 		return Ok(&msg.parts[loc[0]]);
@@ -242,14 +230,14 @@ fn get_mail(req: HttpRequest) -> HttpResponse {
 			return HttpResponse::Ok().json(msg.skeleton());
 		} else if query == "," {
 			return HttpResponse::Ok()
-				.header("content-type", msg.ctype.clone())
+				.content_type(msg.ctype.clone())
 				.body(msg.body.clone())
 		}
 		println!("query = {}", query.clone());
 		let loc = query.split(",").map(|e| usize::from_str_radix(e, 10).unwrap()).collect::<Vec<usize>>();
 		if let Ok(m) = traverse_message(&msg, &loc) {
 			HttpResponse::Ok()
-				.header("content-type", m.ctype.clone())
+				.content_type(m.ctype.clone())
 				.body(m.body.clone())
 		} else {
 			eprintln!("404 traversal {}", path);

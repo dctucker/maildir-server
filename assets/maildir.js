@@ -93,11 +93,11 @@ function toBinary(string) {
 	return String.fromCharCode(...new Uint8Array(codeUnits.buffer));
 }
 
-function fetchBody(loc) {
+function bodyUrl(loc) {
 	path = '/mail/messages';
-	path += rpc.user_data.current_mailbox;
+	path += encodeURI(rpc.user_data.current_mailbox);
 	path += '/';
-	path += rpc.user_data.current_message;
+	path += encodeURI(rpc.user_data.current_message);
 	if( loc !== undefined ){
 		str = loc.join(',');
 		if( str == "" ){
@@ -105,50 +105,62 @@ function fetchBody(loc) {
 		}
 		path += '?' + str;
 	}
-	return fetch(path);
+	return path;
+}
+
+function fetchBody(loc) {
+	return fetch(bodyUrl(loc));
 }
 
 function formatBody(elem, part, loc) {
 	if( loc === undefined ){
 		loc = [];
 	}
-	fetchBody(loc).then(resp => resp.blob()).then(body => {
-		elem.appendChild(document.createElement('hr'));
 
-		ctype = part.headers["Content-Type"];
-		if( ctype.startsWith("text/html") ) {
-			div = document.createElement("div");
-			div.classList.add("html");
-			div.innerHTML = part.body;
-			elem.appendChild(div);
-		} else if( ctype.startsWith("text/plain") ) {
-			section = document.createElement('section');
-			section.classList.add('accordion');
-			html = "";
-			html += "<input type='checkbox' name='collapse' id='handle1'>";
-			html += "<label for='handle1'>Content-Type: text/plain</label>";
-			html += "<div class='content plain'>" + escapeHtml(part.body) + "</div>";
-			section.innerHTML = html;
-			elem.appendChild(section);
-		} else if( ctype.startsWith("image") ) {
-			div = document.createElement('div'); div.classList.add('image');
-			img = document.createElement('img');
-			ct = ctype.split(";")[0];
-			img.src = "data:" + ct + ";base64," + btoa(toBinary(part.body));
-			div.appendChild(img);
-			elem.appendChild(div);
-		} else {
-			div = document.createElement('div');
-			div.innerHTML = escapeHtml(part.body);
-			elem.appendChild(div);
-		}
-		for( p in part.parts ){
-			div = document.createElement('div');
-			div.classList.add('part');
-			formatBody(div, part.parts[p], loc.concat(p));
-			elem.appendChild(div);
-		}
-	});
+	ctype = part.headers["Content-Type"];
+	elem.appendChild(document.createElement('hr'));
+	div = elem.appendChild(document.createElement('div'));
+	div.classList.add('part');
+
+	if( ctype.startsWith("image") ) {
+		div.classList.add('image');
+		img = document.createElement('img');
+		img.src = bodyUrl(loc);
+		//ct = ctype.split(";")[0];
+		//img.src = "data:" + ct + ";base64," + btoa(toBinary(part.body));
+		div.appendChild(img);
+	}
+
+	if( ctype.startsWith("text/") ){
+		fetchBody(loc).then(resp => resp.blob()).then(body => {
+			if( ctype.startsWith("text/html") ) {
+				wrapper = document.createElement('div');
+				wrapper.classList.add("html");
+				wrapper.innerHTML = body;
+				div.appendChild(wrapper);
+			} else if( ctype.startsWith("text/plain") ) {
+				section = document.createElement('section');
+				section.classList.add('accordion');
+				html = "";
+				html += "<input type='checkbox' name='collapse' id='handle1'>";
+				html += "<label for='handle1'>Content-Type: text/plain</label>";
+				html += "<div class='content plain'>" + escapeHtml(body) + "</div>";
+				section.innerHTML = html;
+				div.appendChild(section);
+			}
+		});
+	} else {
+		link = document.createElement('div');
+		a = document.createElement('a');
+		a.href = bodyUrl(loc);
+		a.innerHTML = "Attachment: " + ctype;
+		link.appendChild(a);
+		div.appendChild(link);
+	}
+
+	for( p in part.parts ){
+		formatBody(div, part.parts[p], loc.concat(p));
+	}
 }
 
 function formatHeaders(headers) {
