@@ -10,6 +10,12 @@ body {
 #mail table tr * {
 	border-color: #222;
 }
+.part {
+	border-color: #444;
+}
+.ctype {
+	color: #666;
+}
 #href {
 	background-color: #555;
 	color: #aaa;

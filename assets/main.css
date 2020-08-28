@@ -139,6 +139,14 @@ div {
 	word-break: break-word;
 	overflow-x: auto;
 }
+.part {
+	border-width: 1px;
+	border-style: solid;
+	padding: 0.5em 1em;
+}
+.ctype {
+	font-size: 10pt;
+}
 
 #href {
 	font-family: Arial;

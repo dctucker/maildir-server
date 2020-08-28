@@ -227,6 +227,7 @@ fn get_mail(req: HttpRequest) -> HttpResponse {
 	if let Ok(msg) = load_message(path.to_string()) {
 		let query = req.query_string();
 		if query.len() == 0 {
+			println!("{}", serde_json::to_string_pretty(&msg.skeleton().parts).unwrap());
 			return HttpResponse::Ok().json(msg.skeleton());
 		} else if query == "," {
 			return HttpResponse::Ok()
@@ -250,12 +251,12 @@ fn get_mail(req: HttpRequest) -> HttpResponse {
 }
 
 fn render(webview: &mut WebView<UserData>) -> WVResult {
-    let call = {
-        let data = webview.user_data();
-        println!("{:#?}", data);
-        format!("rpc.render({})", serde_json::to_string(data).unwrap())
-    };
-    webview.eval(&call)
+	let call = {
+		let data = webview.user_data();
+		println!("{:#?}", data);
+		format!("rpc.render({})", serde_json::to_string(data).unwrap())
+	};
+	webview.eval(&call)
 }
 
 fn main() {
@@ -301,7 +302,7 @@ fn main() {
 		.invoke_handler(|webview, arg| {
 			use Cmd::*;
 			if let Ok(cmd) = serde_json::from_str(arg) {
-                let data = webview.user_data_mut();
+				let data = webview.user_data_mut();
 				match cmd {
 					Init {} => {
 						render(webview).unwrap();
@@ -328,5 +329,5 @@ fn main() {
 
 	webview.run().unwrap();
 
-    let _ = server.stop(true).wait();
+	let _ = server.stop(true).wait();
 }

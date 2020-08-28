@@ -1,4 +1,3 @@
-//'use strict';
 rpc = {
 	invoke: function(cmd, args) {
 		if( args === undefined ){
@@ -112,54 +111,74 @@ function fetchBody(loc) {
 	return fetch(bodyUrl(loc));
 }
 
-function formatBody(elem, part, loc) {
+function formatSkeleton(elem, part, loc) {
 	if( loc === undefined ){
 		loc = [];
 	}
 
-	ctype = part.headers["Content-Type"];
-	elem.appendChild(document.createElement('hr'));
-	div = elem.appendChild(document.createElement('div'));
+	var div = document.createElement('div');
+	div.setAttribute('id', 'part' + loc.join('.'));
+	var ct = document.createElement('div');
+	ct.classList.add('ctype');
+	ct.innerHTML = part.ctype;
+	div.appendChild(ct);
 	div.classList.add('part');
 
+	for( p in part.parts ){
+		elem.appendChild( formatSkeleton(div, part.parts[p], loc.concat(p)) );
+	}
+
+	return div;
+}
+
+function formatBody(part, loc) {
+	if( loc === undefined ){
+		loc = [];
+	}
+
+	var ctype = part.ctype;
+	var div = document.getElementById('part' + loc.join('.'));
 	if( ctype.startsWith("image") ) {
 		div.classList.add('image');
-		img = document.createElement('img');
+		var img = document.createElement('img');
 		img.src = bodyUrl(loc);
 		//ct = ctype.split(";")[0];
 		//img.src = "data:" + ct + ";base64," + btoa(toBinary(part.body));
 		div.appendChild(img);
-	}
-
-	if( ctype.startsWith("text/") ){
-		fetchBody(loc).then(resp => resp.blob()).then(body => {
+	} else if( ctype.startsWith("text/") ){
+		var wrapper = document.createElement('div');
+		div.appendChild(wrapper);
+		fetchBody(loc).then(resp => resp.text()).then(body => {
 			if( ctype.startsWith("text/html") ) {
-				wrapper = document.createElement('div');
 				wrapper.classList.add("html");
 				wrapper.innerHTML = body;
-				div.appendChild(wrapper);
 			} else if( ctype.startsWith("text/plain") ) {
-				section = document.createElement('section');
+				wrapper.classList.add("content");
+				wrapper.classList.add("plain");
+				wrapper.innerHTML = escapeHtml(body);
+				/*
+				var section = document.createElement('section');
 				section.classList.add('accordion');
 				html = "";
 				html += "<input type='checkbox' name='collapse' id='handle1'>";
 				html += "<label for='handle1'>Content-Type: text/plain</label>";
 				html += "<div class='content plain'>" + escapeHtml(body) + "</div>";
 				section.innerHTML = html;
-				div.appendChild(section);
+				wrapper.appendChild(section);
+				*/
 			}
 		});
 	} else {
-		link = document.createElement('div');
-		a = document.createElement('a');
+		var link = document.createElement('div');
+		var a = document.createElement('a');
+		a.appendChild(document.createTextNode("Attachment: " + ctype));
 		a.href = bodyUrl(loc);
-		a.innerHTML = "Attachment: " + ctype;
 		link.appendChild(a);
 		div.appendChild(link);
 	}
 
 	for( p in part.parts ){
-		formatBody(div, part.parts[p], loc.concat(p));
+		formatBody(part.parts[p], loc.concat(p));
 	}
 }
 
@@ -207,5 +226,7 @@ function setPreview(data) {
 	document.getElementById("headers_label").innerHTML = data.headers["From"] + " &mdash; " + data.headers["Subject"];
 	document.getElementById("headers").innerHTML = formatHeaders(data.headers);
 	document.getElementById("body").innerHTML = "";
-	formatBody(document.getElementById("body"), data);
+	outer = formatSkeleton(document.getElementById("body"), data);
+	document.getElementById('body').appendChild(outer);
+	formatBody(data);
 }
