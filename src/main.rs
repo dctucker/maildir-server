@@ -260,6 +260,8 @@ fn render(webview: &mut WebView<UserData>) -> WVResult {
 }
 
 fn main() {
+	let user_data = UserData::new();
+
 	let (server_tx, server_rx) = mpsc::channel();
 	let (port_tx, port_rx) = mpsc::channel();
 
@@ -298,7 +300,7 @@ fn main() {
 		.size(1024, 768)
 		.resizable(true)
 		.debug(true)
-		.user_data(UserData::new())
+		.user_data(user_data)
 		.invoke_handler(|webview, arg| {
 			use Cmd::*;
 			if let Ok(cmd) = serde_json::from_str(arg) {

@@ -11,6 +11,9 @@ LegalCopyright = "Copyright \u00a9 2020"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[dependencies.frontend]
+path = "frontend"
+
 [dependencies]
 mailparse = "0.13.0"
 maildir = "0.4.2"
