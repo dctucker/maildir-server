@@ -4,7 +4,8 @@ rpc = {
 			args = {};
 		}
 		args.cmd = cmd;
-		external.invoke(JSON.stringify(args));
+		// external.invoke(JSON.stringify(args));
+		window.webkit.messageHandlers.external.postMessage(JSON.stringify(args))
 	},
 	init : function() { rpc.invoke('Init'); },
 	render: function(data) {

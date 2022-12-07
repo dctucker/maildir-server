@@ -19,7 +19,8 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_derive = "1.0"
 html_sanitizer = "0.1.1"
-webbrowser = "0.5.5"
+webbrowser = "0.8.2"
+web-view = "0.7"
 actix-web = "1.0"
 actix-rt = "0.2"
 futures = "0.1"
@@ -35,6 +36,6 @@ winres = "0.1"
 [replace]
 'maildir:0.4.2' = { path = "./maildir" }
 
-[dependencies.web-view]
-version = "0.6.3"
+[dependencies.webview-sys]
+#version = "0.6.2"
 features = ["edge"]

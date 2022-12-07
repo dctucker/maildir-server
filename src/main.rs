@@ -1,6 +1,6 @@
 //#![windows_subsystem = "windows"]
 
-const MAILDIR_PATH: &str = "E:/Maildir";
+const MAILDIR_PATH: &str = "/home/casey/maildir";
 
 extern crate actix_rt;
 extern crate actix_web;
@@ -64,7 +64,7 @@ impl Message {
 fn format_filename(s: String, full_path: &str) -> String {
 	s.replace("\\","/")
 		.replace(full_path,"")
-		.replace("\u{f022}",":")
+		//.replace("\u{f022}",":")
 }
 fn format_date(s: String) -> String {
 	let date = mailparse::dateparse(&s).unwrap();
@@ -199,7 +199,7 @@ fn assets(req: HttpRequest) -> HttpResponse {
 cached_result!{
 	MESSAGES: SizedCache<String, Message> = SizedCache::with_size(50);
 	fn load_message(path: String) -> Result<Message, ()> = {
-		let path = path.replace(":", "\u{f022}");
+		//let path = path.replace(":", "\u{f022}");
 		let path = format!("{}/{}", MAILDIR_PATH, path);
 		if let Ok(mut f) = fs::File::open(path.clone()) {
 			let mut d = Vec::<u8>::new();
